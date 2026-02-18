@@ -103,6 +103,7 @@ vim.o.number = true
 -- You can also add relative line numbers, to help with jumping.
 --  Experiment for yourself to see if you like it!
 -- vim.o.relativenumber = true
+vim.o.relativenumber = true
 
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.o.mouse = 'a'
@@ -175,6 +176,7 @@ vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
 -- Diagnostic keymaps
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
+vim.keymap.set('n', '<leader>e', vim.diagnostic.open_float, { desc = 'Show [E]rror diagnostic float' })
 
 -- Exit terminal mode in the builtin terminal with a shortcut that is a bit easier
 -- for people to discover. Otherwise, you normally need to press <C-\><C-n>, which
@@ -298,6 +300,20 @@ require('lazy').setup({
   -- Then, because we use the `opts` key (recommended), the configuration runs
   -- after the plugin has been loaded as `require(MODULE).setup(opts)`.
 
+  {
+    'akinsho/toggleterm.nvim',
+    version = '*',
+    opts = {
+      size = 20,
+      open_mapping = [[<c-\>]],
+      direction = 'float',
+      start_in_insert = true,
+      float_opts = {
+        border = 'curved',
+      },
+    },
+  },
+
   { -- Adds a file browser to telescope
     'nvim-telescope/telescope-file-browser.nvim',
     dependencies = { 'nvim-telescope/telescope.nvim', 'nvim-lua/plenary.nvim' },
@@ -306,6 +322,69 @@ require('lazy').setup({
   { -- Git status in a tree view
     'sindrets/diffview.nvim',
     cmd = { 'DiffviewOpen' },
+  },
+
+  { -- Minimap showing full file overview with LSP/diagnostic highlights
+    'gorbit99/codewindow.nvim',
+    config = function()
+      local codewindow = require('codewindow')
+      codewindow.setup({
+        show_cursor = true,
+        screen_bounds = 'lines',
+        window_border = 'none',
+      })
+      codewindow.apply_default_keybinds()
+      -- <leader>mo: open, <leader>mc: close, <leader>mf: focus, <leader>mm: toggle
+    end,
+  },
+
+  -- File aware single line and block commenting
+  {
+    'numToStr/Comment.nvim',
+    opts = {
+      -- add any options here
+    },
+  },
+
+  { -- Floating peek windows for LSP definitions, types, implementations, references
+    'rmagatti/goto-preview',
+    event = 'LspAttach',
+    config = function()
+      require('goto-preview').setup {
+        width = 120,
+        height = 25,
+        border = 'rounded',
+        default_mappings = false, -- we set our own below
+        post_open_hook = function(_, win)
+          -- Press <Esc> to close the peek window
+          vim.keymap.set('n', '<Esc>', function()
+            vim.api.nvim_win_close(win, true)
+          end, { buffer = true, nowait = true })
+        end,
+      }
+      local gtp = require('goto-preview')
+      vim.keymap.set('n', 'gpd', gtp.goto_preview_definition,      { desc = '[P]eek [D]efinition' })
+      vim.keymap.set('n', 'gpt', gtp.goto_preview_type_definition, { desc = '[P]eek [T]ype Definition' })
+      vim.keymap.set('n', 'gpi', gtp.goto_preview_implementation,  { desc = '[P]eek [I]mplementation' })
+      vim.keymap.set('n', 'gpr', gtp.goto_preview_references,      { desc = '[P]eek [R]eferences' })
+      vim.keymap.set('n', 'gP',  gtp.close_all_win,                { desc = 'Close all [P]eek windows' })
+    end,
+  },
+
+  {
+    'pmizio/typescript-tools.nvim',
+    dependencies = { 'nvim-lua/plenary.nvim', 'neovim/nvim-lspconfig' },
+    opts = {},
+  },
+
+  {
+    'greggh/claude-code.nvim',
+    dependencies = {
+      'nvim-lua/plenary.nvim', -- Required for git operations
+    },
+    config = function()
+      require('claude-code').setup()
+    end,
   },
 
   { -- Useful plugin to show you pending keybinds.
@@ -422,6 +501,7 @@ require('lazy').setup({
             --  i = { ['<c-enter>'] = 'to_fuzzy_refine' },
           },
           file_ignore_patterns = { '^node_modules/', '/node_modules/', '^dist/', '/dist/' },
+          path_display = { 'filename_first' },
         },
         pickers = {},
         extensions = {
@@ -455,7 +535,7 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>sh', builtin.help_tags, { desc = '[S]earch [H]elp' })
       vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
       vim.keymap.set('n', '<leader>sf', function()
-        builtin.find_files { hidden = true, no_ignore = true }
+        builtin.find_files { hidden = true }
       end, { desc = '[S]earch [F]iles' })
       vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
       vim.keymap.set('n', '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
@@ -473,6 +553,9 @@ require('lazy').setup({
 
       vim.keymap.set('n', '<leader>fb', function()
         fb.file_browser {
+          path = vim.fn.expand '%:p:h',
+          cwd = vim.fn.expand '%:p:h', -- keeps prompt location in sync
+          select_buffer = true, -- open in current window
           hidden = { file_browser = true, folder_browser = true },
           respect_gitignore = false,
         }
@@ -714,20 +797,26 @@ require('lazy').setup({
       local servers = {
         -- clangd = {},
         -- gopls = {},
-        -- pyright = {},
-        -- rust_analyzer = {},
-        -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
+        pyright = {},
+        rust_analyzer = {},
+        eslint = {
+
+          settings = {
+            workingDirectory = { mode = 'auto' },
+          },
+        },
+        -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPshttps://www.google.com/search?q=financial%20tool%20for%20startups%20reddit
         --
         -- Some languages (like typescript) have entire language plugins that can be useful:
         --    https://github.com/pmizio/typescript-tools.nvim
         --
         -- But for many setups, the LSP (`ts_ls`) will work just fine
-        ts_ls = {
-          on_attach = function(client, bufnr)
-            client.server_capabilities.document_formatting = false
-            client.server_capabilities.document_range_formatting = false
-          end,
-        },
+        -- ts_ls = {
+        --   on_attach = function(client, bufnr)
+        --     client.server_capabilities.document_formatting = false
+        --     client.server_capabilities.document_range_formatting = false
+        --   end,
+        -- },
 
         lua_ls = {
           -- cmd = { ... },
@@ -762,14 +851,24 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
         'prettierd',
+        'eslint-lsp',
+        'eslint_d',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
       require('mason-lspconfig').setup {
         ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
         automatic_installation = false,
+        automatic_enable = {
+          exclude = { 'ts_ls' },
+        },
         handlers = {
+          tsserver = function() end,
+
           function(server_name)
+            if server_name == 'tsserver' then
+              return
+            end
             local server = servers[server_name] or {}
             -- This handles overriding only values explicitly passed
             -- by the server configuration above. Useful when disabling
@@ -819,10 +918,10 @@ require('lazy').setup({
         --
         -- You can use 'stop_after_first' to run the first available formatter from the list
         -- JavaScript / TypeScript
-        javascript = { 'prettierd', 'prettier', stop_after_first = true },
-        javascriptreact = { 'prettierd', 'prettier', stop_after_first = true },
-        typescript = { 'prettierd', 'prettier', stop_after_first = true },
-        typescriptreact = { 'prettierd', 'prettier', stop_after_first = true },
+        javascript = { 'prettierd', 'prettier', 'eslint_d', stop_after_first = true },
+        javascriptreact = { 'prettierd', 'prettier', 'eslint_d', stop_after_first = true },
+        typescript = { 'prettierd', 'prettier', 'eslint_d', stop_after_first = true },
+        typescriptreact = { 'prettierd', 'prettier', 'eslint_d', stop_after_first = true },
       },
     },
   },
