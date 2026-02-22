@@ -1025,25 +1025,48 @@ require('lazy').setup({
     },
   },
 
-  { -- You can easily change to a different colorscheme.
-    -- Change the name of the colorscheme plugin below, and then
-    -- change the command in the config to whatever the name of that colorscheme is.
-    --
-    -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-    'folke/tokyonight.nvim',
-    priority = 1000, -- Make sure to load this before all the other start plugins.
+  { -- VS Code Dark+ / Light+ theme with easy toggle
+    'Mofiqul/vscode.nvim',
+    priority = 1000, -- Load before all other plugins
     config = function()
-      ---@diagnostic disable-next-line: missing-fields
-      require('tokyonight').setup {
-        styles = {
-          comments = { italic = false }, -- Disable italics in comments
-        },
-      }
+      local vscode = require('vscode')
 
-      -- Load the colorscheme here.
-      -- Like many other themes, this one has different styles, and you could load
-      -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+      vscode.setup({
+        style = 'dark',             -- Start in dark mode ('dark' or 'light')
+        transparent = false,
+        italic_comments = false,
+        disable_nvimtree_bg = true,
+      })
+
+      vscode.load()
+
+      -- Toggle between dark and light mode with <leader>tt
+      -- Also syncs Ghostty terminal theme
+      local ghostty_config = vim.fn.expand('~/.config/ghostty/config')
+      local ghostty_themes = { dark = 'Ayu Mirage', light = 'Ayu Light' }
+
+      vim.keymap.set('n', '<leader>tt', function()
+        local current = vim.g.vscode_style or 'dark'
+        local next_style = current == 'dark' and 'light' or 'dark'
+        vim.g.vscode_style = next_style
+
+        -- Update Neovim theme
+        vscode.setup({ style = next_style, italic_comments = false })
+        vscode.load()
+
+        -- Update Ghostty theme by rewriting the config line
+        local ghostty_theme = ghostty_themes[next_style]
+        local file = io.open(ghostty_config, 'w')
+        if file then
+          file:write('theme = ' .. ghostty_theme .. '\n')
+          file:close()
+          -- Signal Ghostty to reload its config via macOS menu action
+          vim.fn.jobstart({ 'osascript', '-e', 'tell application "Ghostty" to activate' })
+          vim.fn.system([[osascript -e 'tell application "System Events" to tell process "Ghostty" to click menu item "Reload Config" of menu "Ghostty" of menu bar 1']])
+        end
+
+        vim.notify('Theme: ' .. next_style .. ' (Ghostty: ' .. ghostty_theme .. ')', vim.log.levels.INFO)
+      end, { desc = '[T]oggle [T]heme dark/light' })
     end,
   },
 
