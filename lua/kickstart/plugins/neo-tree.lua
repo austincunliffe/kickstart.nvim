@@ -15,6 +15,10 @@ return {
   },
   opts = {
     filesystem = {
+      follow_current_file = {
+        enabled = true, -- auto-reveal + highlight the active buffer's file (VS Code style)
+        leave_dirs_open = false, -- collapse dirs you navigated away from
+      },
       window = {
         mappings = {
           ['\\'] = 'close_window',

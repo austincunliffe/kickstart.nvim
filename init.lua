@@ -283,7 +283,19 @@ require('lazy').setup({
         topdelete = { text = '‾' },
         changedelete = { text = '~' },
       },
+      current_line_blame = true,
+      current_line_blame_opts = {
+        delay = 300,
+        virt_text_pos = 'eol',
+      },
+      current_line_blame_formatter = '<author>, <author_time:%Y-%m-%d> - <summary>',
     },
+    config = function(_, opts)
+      local gs = require('gitsigns')
+      gs.setup(opts)
+      vim.keymap.set('n', '<leader>gb', function() gs.blame_line({ full = true }) end, { desc = '[G]it [B]lame line (popup)' })
+      vim.keymap.set('n', '<leader>gB', gs.toggle_current_line_blame, { desc = 'Toggle inline git [B]lame' })
+    end,
   },
 
   -- NOTE: Plugins can also be configured to run Lua code when they are loaded.
@@ -344,6 +356,24 @@ require('lazy').setup({
     opts = {
       -- add any options here
     },
+  },
+
+  { -- Smooth animated scrolling for keyboard motions and the mouse wheel
+    'karb94/neoscroll.nvim',
+    event = 'VeryLazy',
+    config = function()
+      local neoscroll = require('neoscroll')
+      neoscroll.setup {
+        mappings = { '<C-u>', '<C-d>', '<C-b>', '<C-f>', '<C-y>', '<C-e>', 'zt', 'zz', 'zb' },
+        easing = 'quadratic',
+      }
+      vim.keymap.set({ 'n', 'v', 'x' }, '<ScrollWheelUp>', function()
+        neoscroll.scroll(-0.1, { move_cursor = false, duration = 80 })
+      end)
+      vim.keymap.set({ 'n', 'v', 'x' }, '<ScrollWheelDown>', function()
+        neoscroll.scroll(0.1, { move_cursor = false, duration = 80 })
+      end)
+    end,
   },
 
   { -- Floating peek windows for LSP definitions, types, implementations, references
@@ -649,6 +679,13 @@ require('lazy').setup({
       vim.api.nvim_create_autocmd('LspAttach', {
         group = vim.api.nvim_create_augroup('kickstart-lsp-attach', { clear = true }),
         callback = function(event)
+          -- jdtls answers textDocument/definition but doesn't advertise definitionProvider,
+          -- which makes telescope's lsp_definitions refuse with "server does not support".
+          local client = vim.lsp.get_client_by_id(event.data.client_id)
+          if client and client.name == 'jdtls' then
+            client.server_capabilities.definitionProvider = true
+          end
+
           -- NOTE: Remember that Lua is a real programming language, and as such it is possible
           -- to define small helper and utility functions so you don't have to repeat yourself.
           --
@@ -853,32 +890,33 @@ require('lazy').setup({
         'prettierd',
         'eslint-lsp',
         'eslint_d',
+        'jdtls', -- Java LSP; started by nvim-jdtls, not mason-lspconfig (see after/ftplugin/java.lua)
+        'java-debug-adapter',
+        'java-test',
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
+
+      -- mason-lspconfig v2 dropped the `handlers` option; configure via the native
+      -- vim.lsp.config API and let `automatic_enable` start each installed server.
+      vim.lsp.config('*', { capabilities = capabilities })
+      for server_name, server_config in pairs(servers) do
+        vim.lsp.config(server_name, server_config)
+      end
 
       require('mason-lspconfig').setup {
         ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
         automatic_installation = false,
         automatic_enable = {
-          exclude = { 'ts_ls' },
-        },
-        handlers = {
-          tsserver = function() end,
-
-          function(server_name)
-            if server_name == 'tsserver' then
-              return
-            end
-            local server = servers[server_name] or {}
-            -- This handles overriding only values explicitly passed
-            -- by the server configuration above. Useful when disabling
-            -- certain features of an LSP (for example, turning off formatting for ts_ls)
-            server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
-          end,
+          exclude = { 'ts_ls', 'jdtls' }, -- ts_ls -> typescript-tools; jdtls -> nvim-jdtls
         },
       }
     end,
+  },
+
+  { -- Java LSP driver (organize imports, extract, test, debug, per-project workspace)
+    'mfussenegger/nvim-jdtls',
+    ft = 'java',
+    dependencies = { 'mfussenegger/nvim-dap' }, -- enables jdtls test running / debugging
   },
 
   { -- Autoformat
@@ -1018,56 +1056,47 @@ require('lazy').setup({
       -- the rust implementation via `'prefer_rust_with_warning'`
       --
       -- See :h blink-cmp-config-fuzzy for more information
-      fuzzy = { implementation = 'lua' },
+      fuzzy = { implementation = 'prefer_rust_with_warning' },
 
       -- Shows a signature help window while you type arguments for a function
       signature = { enabled = true },
     },
   },
 
-  { -- VS Code Dark+ / Light+ theme with easy toggle
-    'Mofiqul/vscode.nvim',
+  { -- Rose Pine colorscheme (variant driven by auto-dark-mode below)
+    'rose-pine/neovim',
+    name = 'rose-pine',
     priority = 1000, -- Load before all other plugins
     config = function()
-      local vscode = require('vscode')
+      require('rose-pine').setup {
+        variant = 'auto', -- 'main' when background=dark, 'dawn' when background=light
+        dark_variant = 'main',
+      }
+      vim.o.background = 'dark' -- initial; auto-dark-mode corrects this to match macOS at startup
+      vim.cmd.colorscheme 'rose-pine'
 
-      vscode.setup({
-        style = 'dark',             -- Start in dark mode ('dark' or 'light')
-        transparent = false,
-        italic_comments = false,
-        disable_nvimtree_bg = true,
-      })
-
-      vscode.load()
-
-      -- Toggle between dark and light mode with <leader>tt
-      -- Also syncs Ghostty terminal theme
-      local ghostty_config = vim.fn.expand('~/.config/ghostty/config')
-      local ghostty_themes = { dark = 'Ayu Mirage', light = 'Ayu Light' }
-
+      -- <leader>tt toggles the macOS system appearance. Ghostty (theme = dark:.../light:...),
+      -- Claude Code ("theme": "auto"), and Neovim (auto-dark-mode, below) all follow it.
       vim.keymap.set('n', '<leader>tt', function()
-        local current = vim.g.vscode_style or 'dark'
-        local next_style = current == 'dark' and 'light' or 'dark'
-        vim.g.vscode_style = next_style
-
-        -- Update Neovim theme
-        vscode.setup({ style = next_style, italic_comments = false })
-        vscode.load()
-
-        -- Update Ghostty theme by rewriting the config line
-        local ghostty_theme = ghostty_themes[next_style]
-        local file = io.open(ghostty_config, 'w')
-        if file then
-          file:write('theme = ' .. ghostty_theme .. '\n')
-          file:close()
-          -- Signal Ghostty to reload its config via macOS menu action
-          vim.fn.jobstart({ 'osascript', '-e', 'tell application "Ghostty" to activate' })
-          vim.fn.system([[osascript -e 'tell application "System Events" to tell process "Ghostty" to click menu item "Reload Config" of menu "Ghostty" of menu bar 1']])
-        end
-
-        vim.notify('Theme: ' .. next_style .. ' (Ghostty: ' .. ghostty_theme .. ')', vim.log.levels.INFO)
-      end, { desc = '[T]oggle [T]heme dark/light' })
+        vim.fn.system([[osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to not dark mode']])
+      end, { desc = '[T]oggle [T]heme (macOS dark/light)' })
     end,
+  },
+
+  { -- Follow the macOS light/dark appearance automatically
+    'f-person/auto-dark-mode.nvim',
+    priority = 999,
+    opts = {
+      update_interval = 1000, -- ms; how often to poll macOS appearance
+      set_dark_mode = function()
+        vim.o.background = 'dark'
+        vim.cmd.colorscheme 'rose-pine'
+      end,
+      set_light_mode = function()
+        vim.o.background = 'light'
+        vim.cmd.colorscheme 'rose-pine'
+      end,
+    },
   },
 
   -- Highlight todo, notes, etc in comments
@@ -1112,6 +1141,7 @@ require('lazy').setup({
   },
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
+    branch = 'master',
     build = ':TSUpdate',
     main = 'nvim-treesitter.configs', -- Sets main module to use for opts
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
@@ -1149,7 +1179,7 @@ require('lazy').setup({
   -- require 'kickstart.plugins.indent_line',
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
-  -- require 'kickstart.plugins.neo-tree',
+  require 'kickstart.plugins.neo-tree',
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
